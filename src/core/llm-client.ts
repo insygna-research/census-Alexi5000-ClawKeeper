@@ -4,12 +4,35 @@
 
 import OpenAI from 'openai';
 import { get_opik_client } from './observability';
+import { get_deepseek_api_key, LlmNotConfiguredError } from './llm-settings';
 
-// DeepSeek client using OpenAI-compatible API
-const deepseek = new OpenAI({
-  apiKey: process.env.DEEPSEEK_API_KEY,
-  baseURL: process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com/v1',
-});
+const DEEPSEEK_BASE_URL = process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com/v1';
+
+// DeepSeek client using OpenAI-compatible API — built on first use rather than at import, so the process
+// starts without a key (the OpenAI SDK throws on an undefined one), and rebuilt when the key changes.
+let deepseek_client: OpenAI | null = null;
+let deepseek_client_key: string | null = null;
+
+export function get_deepseek_client(): OpenAI {
+  const key = get_deepseek_api_key();
+  if (!key) throw new LlmNotConfiguredError();
+  if (!deepseek_client || deepseek_client_key !== key) {
+    deepseek_client = new OpenAI({ apiKey: key, baseURL: DEEPSEEK_BASE_URL });
+    deepseek_client_key = key;
+  }
+  return deepseek_client;
+}
+
+/** Asks DeepSeek whether a key works, without saving it. Resolves to an error message, or null when it does. */
+export async function check_deepseek_api_key(key: string): Promise<string | null> {
+  try {
+    await new OpenAI({ apiKey: key.trim(), baseURL: DEEPSEEK_BASE_URL }).models.list();
+    return null;
+  } catch (error: any) {
+    if (error?.status === 401 || error?.status === 403) return 'DeepSeek rejected this key.';
+    return `Could not reach DeepSeek to check the key: ${error?.message ?? String(error)}`;
+  }
+}
 
 // ============================================================================
 // Types
@@ -70,7 +93,7 @@ export async function complete(
 
   for (let attempt = 1; attempt <= max_retries; attempt++) {
     try {
-      const completion = await deepseek.chat.completions.create({
+      const completion = await get_deepseek_client().chat.completions.create({
         model,
         max_tokens,
         temperature,
@@ -94,6 +117,10 @@ export async function complete(
 
       return response_text;
     } catch (error: any) {
+      if (error instanceof LlmNotConfiguredError) {
+        trace?.end();
+        throw error;
+      }
       last_error = error;
       const is_rate_limit = error.status === 429 || error.statusCode === 429 || String(error.message).includes('429');
       const is_server_error = error.status >= 500 || error.statusCode >= 500;

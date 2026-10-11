@@ -21,10 +21,14 @@ import { create_customer_routes } from './routes/customers';
 import { create_metrics_routes } from './routes/metrics';
 import { admin_routes } from './routes/admin';
 import { websocket_handler } from './websocket_handler';
+import { setup_routes } from './setup';
 import type { AppEnv } from '../types/hono';
 
-// Database connection
-const sql = postgres(process.env.DATABASE_URL!, {
+// Database connection. Without DATABASE_URL, the postgres companion from docker-compose.yml — the same
+// credentials, reached on localhost because the two containers share a pod (or a host network).
+const DATABASE_URL = process.env.DATABASE_URL
+  || 'postgresql://clawkeeper:clawkeeper_local_password@localhost:5432/clawkeeper';
+const sql = postgres(DATABASE_URL, {
   max: 10,
   idle_timeout: 20,
 });
@@ -95,6 +99,9 @@ app.use('/api/*', async (c, next) => {
     return c.json({ error: 'Authentication failed' }, 401);
   }
 });
+
+// First-run setup: enter the LLM keys (outside /api, which requires a JWT)
+app.route('/', setup_routes());
 
 // Health check
 app.get('/health', (c) => {

@@ -4,6 +4,7 @@
 
 import { agent_runtime } from './agents/index';
 import { flush_opik } from './core/observability';
+import { has_deepseek_api_key } from './core/llm-settings';
 
 console.log('');
 console.log('═'.repeat(50));
@@ -49,6 +50,9 @@ Bun.serve({
 console.log(`[API] ✅ Server running on http://localhost:${port}`);
 console.log(`[API]    Health: http://localhost:${port}/health`);
 console.log(`[API]    Agents: http://localhost:${port}/api/agents/status`);
+if (!has_deepseek_api_key()) {
+  console.log(`[Setup] ⚠️  No DeepSeek API key — open http://localhost:${port}/setup to enter one`);
+}
 
 console.log('');
 console.log('═'.repeat(50));
